@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html lang="ca">
 <head>
-  <meta charset="UTF-8">
-  <title>Xat Nivell 3</title>
+  <meta charset="UTF-8" />
+  <title>Xat amb Sales</title>
   <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
     .my-message {
       text-align: right;
       color: blue;
@@ -15,86 +18,109 @@
     #chat {
       list-style-type: none;
       padding: 0;
-      margin: 0;
+      margin: 1rem 0;
     }
     #chat li {
-      padding: 5px;
-      margin-bottom: 10px;
+      padding: 4px;
     }
   </style>
 </head>
 <body>
-  <h1>Xat amb nom d'usuari</h1>
-  
-  <!-- Formulari per introduir el nom -->
+  <h1>Xat amb Sales</h1>
+
+  <!-- Nom d'usuari -->
   <div id="nameForm">
-    <label for="username">Introdueix el teu nom: </label>
-    <input type="text" id="username" placeholder="Nom d'usuari" />
-    <button onclick="setName()">Assigna el teu nom</button>
+    <label>Nom d'usuari:</label>
+    <input type="text" id="username" placeholder="Ex: Pol" />
+    <button onclick="setName()">Següent</button>
+  </div>
+
+  <!-- Selecció de sala -->
+  <div id="roomForm" style="display:none;">
+    <label>Nom de la sala:</label>
+    <input type="text" id="room" placeholder="Ex: general" />
+    <button onclick="joinRoom()">Entrar a la sala</button>
   </div>
 
   <!-- Xat -->
   <div id="chatBox" style="display:none;">
+    <h2 id="roomTitle"></h2>
     <input type="text" id="msg" placeholder="Escriu un missatge..." />
     <button onclick="sendMsg()">Envia</button>
+    <button onclick="leaveRoom()">Sortir de la sala</button>
     <ul id="chat"></ul>
   </div>
 
   <script>
     const socket = new WebSocket(`ws://${location.host}`);
     let username = '';
+    let room = '';
 
-    // Funció per establir el nom d'usuari
+    // Establir nom
     function setName() {
-      username = document.getElementById('username').value;
+      username = document.getElementById('username').value.trim();
+      if (!username) return;
       socket.send(JSON.stringify({ type: 'setName', username }));
       document.getElementById('nameForm').style.display = 'none';
-      document.getElementById('chatBox').style.display = 'block';
+      document.getElementById('roomForm').style.display = 'block';
     }
 
-    // Quan arribin missatges, els mostrem amb el nom d'usuari
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      const li = document.createElement('li');
-      if (data.username === username) {
-        // No s'ha de mostrar el missatge propi quan el rep l'altre usuari
-        return;
-      }
-      // Mostra el missatge de l'altre usuari
-      li.textContent = `${data.username}: ${data.text}`;
-      li.classList.add('other-message');
-      document.getElementById('chat').appendChild(li);
-    };
-
-  
+    // Entrar a la sala
+    function joinRoom() {
+      room = document.getElementById('room').value.trim().toLowerCase();
+      if (!room) return;
+      socket.send(JSON.stringify({ type: 'joinRoom', room }));
+      document.getElementById('roomForm').style.display = 'none';
+      document.getElementById('chatBox').style.display = 'block';
+      document.getElementById('roomTitle').innerText = `Sala: ${room}`;
+      document.getElementById('chat').innerHTML = ''; // Neteja el xat
+    }
 
     // Enviar missatge
     function sendMsg() {
       const input = document.getElementById('msg');
-      const message = input.value;
+      const text = input.value.trim();
+      if (!text) return;
 
-      // Mostra el missatge propi immediatament
       const li = document.createElement('li');
-      li.textContent = message;
+      li.textContent = text;
       li.classList.add('my-message');
       document.getElementById('chat').appendChild(li);
 
-      // Envia el missatge a tots els altres clients
-      socket.send(JSON.stringify({ text: message, username }));
-
-      input.value = ''; // Esborra el camp de text
+      socket.send(JSON.stringify({ type: 'message', text }));
+      input.value = '';
     }
 
-    // enviar missatge amb enter (si està el missatge buit no s'envia)
-    document.getElementById('msg').addEventListener('keypress', (event) => {
-      if (event.key === 'Enter') {
-        const input = document.getElementById('msg');
-        if (input.value.trim() !== '') {
-          sendMsg();
-        }
-      }
+    // Sortir de la sala
+    function leaveRoom() {
+      room = '';
+      document.getElementById('chatBox').style.display = 'none';
+      document.getElementById('roomForm').style.display = 'block';
+    }
+
+    // Tecla enter funcional
+    document.getElementById('username').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') setName();
     });
 
+    document.getElementById('room').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') joinRoom();
+    });
+
+    document.getElementById('msg').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMsg();
+    });
+
+    // Rebre missatge
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.username === username) return;
+
+      const li = document.createElement('li');
+      li.textContent = `${data.username}: ${data.text}`;
+      li.classList.add('other-message');
+      document.getElementById('chat').appendChild(li);
+    };
   </script>
 </body>
 </html>
