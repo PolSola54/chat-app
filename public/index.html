@@ -2,125 +2,126 @@
 <html lang="ca">
 <head>
   <meta charset="UTF-8" />
-  <title>Xat amb Sales</title>
+  <title>Xat en temps real</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-    }
-    .my-message {
-      text-align: right;
-      color: blue;
-    }
-    .other-message {
-      text-align: left;
-      color: green;
-    }
-    #chat {
-      list-style-type: none;
-      padding: 0;
-      margin: 1rem 0;
-    }
-    #chat li {
-      padding: 4px;
-    }
+    body { font-family: sans-serif; padding: 1em; }
+    #chat { display: none; }
+    .admin-btn { margin-left: 10px; cursor: pointer; color: red; }
   </style>
 </head>
 <body>
-  <h1>Xat amb Sales</h1>
-
-  <!-- Nom d'usuari -->
-  <div id="nameForm">
-    <label>Nom d'usuari:</label>
-    <input type="text" id="username" placeholder="Ex: Pol" />
-    <button onclick="setName()">Següent</button>
+  <div id="login">
+    <h2>Benvingut al xat</h2>
+    <input id="username" placeholder="Nom d'usuari" /><br><br>
+    <input id="room" placeholder="Nom de la sala" /><br><br>
+    <button id="joinBtn">Entrar a la sala</button>
   </div>
 
-  <!-- Selecció de sala -->
-  <div id="roomForm" style="display:none;">
-    <label>Nom de la sala:</label>
-    <input type="text" id="room" placeholder="Ex: general" />
-    <button onclick="joinRoom()">Entrar a la sala</button>
-  </div>
-
-  <!-- Xat -->
-  <div id="chatBox" style="display:none;">
-    <h2 id="roomTitle"></h2>
-    <input type="text" id="msg" placeholder="Escriu un missatge..." />
-    <button onclick="sendMsg()">Envia</button>
-    <button onclick="leaveRoom()">Sortir de la sala</button>
-    <ul id="chat"></ul>
+  <div id="chat">
+    <h3 id="roomName"></h3>
+    <div id="messages" style="height:300px; overflow:auto; border:1px solid #ccc; padding:10px;"></div>
+    <input id="msg" placeholder="Escriu un missatge" />
+    <button id="sendBtn">Envia</button>
+    <br><br>
+    <button id="leaveBtn">Sortir de la sala</button>
   </div>
 
   <script>
-    const socket = new WebSocket(`ws://${location.host}`);
-    let username = '';
-    let room = '';
+    const ws = new WebSocket("ws://" + location.host);
+    let username, room;
+    const admins = new Set();
 
-    // Establir nom
-    function setName() {
-      username = document.getElementById('username').value.trim();
-      if (!username) return;
-      socket.send(JSON.stringify({ type: 'setName', username }));
-      document.getElementById('nameForm').style.display = 'none';
-      document.getElementById('roomForm').style.display = 'block';
+    document.getElementById("joinBtn").onclick = join;
+    document.getElementById("sendBtn").onclick = send;
+    document.getElementById("leaveBtn").onclick = leave;
+
+    // ENTER per entrar o enviar
+    document.getElementById("room").addEventListener("keydown", e => {
+      if (e.key === "Enter") join();
+    });
+    document.getElementById("username").addEventListener("keydown", e => {
+      if (e.key === "Enter") join();
+    });
+    document.getElementById("msg").addEventListener("keydown", e => {
+      if (e.key === "Enter") send();
+    });
+
+    function join() {
+      username = document.getElementById("username").value;
+      room = document.getElementById("room").value.toLowerCase();
+
+      if (!username || !room) return alert("Nom i sala requerits.");
+
+      document.getElementById("login").style.display = "none";
+      document.getElementById("chat").style.display = "block";
+      document.getElementById("roomName").innerText = `Sala: ${room}`;
+
+      ws.send(JSON.stringify({ type: "join", username, room }));
     }
 
-    // Entrar a la sala
-    function joinRoom() {
-      room = document.getElementById('room').value.trim().toLowerCase();
-      if (!room) return;
-      socket.send(JSON.stringify({ type: 'joinRoom', room }));
-      document.getElementById('roomForm').style.display = 'none';
-      document.getElementById('chatBox').style.display = 'block';
-      document.getElementById('roomTitle').innerText = `Sala: ${room}`;
-      document.getElementById('chat').innerHTML = ''; // Neteja el xat
-    }
-
-    // Enviar missatge
-    function sendMsg() {
-      const input = document.getElementById('msg');
-      const text = input.value.trim();
+    function send() {
+      const text = document.getElementById("msg").value;
       if (!text) return;
 
-      const li = document.createElement('li');
-      li.textContent = text;
-      li.classList.add('my-message');
-      document.getElementById('chat').appendChild(li);
+      const id = Date.now().toString();
 
-      socket.send(JSON.stringify({ type: 'message', text }));
-      input.value = '';
+      // Mostra localment també
+      addMessage(`${username}: ${text}`, id, true);
+
+      ws.send(JSON.stringify({ type: "chat", text, id }));
+      document.getElementById("msg").value = "";
     }
 
-    // Sortir de la sala
-    function leaveRoom() {
-      room = '';
-      document.getElementById('chatBox').style.display = 'none';
-      document.getElementById('roomForm').style.display = 'block';
+    function leave() {
+      location.reload();
     }
 
-    // Tecla enter funcional
-    document.getElementById('username').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') setName();
-    });
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
 
-    document.getElementById('room').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') joinRoom();
-    });
-
-    document.getElementById('msg').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendMsg();
-    });
-
-    // Rebre missatge
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.username === username) return;
-
-      const li = document.createElement('li');
-      li.textContent = `${data.username}: ${data.text}`;
-      li.classList.add('other-message');
-      document.getElementById('chat').appendChild(li);
+      if (msg.type === "chat") {
+        if (msg.from !== username) {
+          addMessage(`${msg.from}: ${msg.text}`, msg.id, false, msg.from);
+        }
+      } else if (msg.type === "info") {
+        addMessage(msg.text);
+      } else if (msg.type === "delete") {
+        const el = document.getElementById("msg-" + msg.id);
+        if (el) el.remove();
+      } else if (msg.type === "you_are_admin") {
+        admins.add(msg.username);
+      }
     };
+
+    function addMessage(text, id = null, own = false, from = null) {
+      const div = document.createElement("div");
+      if (id) div.id = "msg-" + id;
+      div.textContent = own ? `- ${text}` : `- ${text}`;
+
+      // Si ets admin, afegeix botons
+      if (id && admins.has(username)) {
+        const delBtn = document.createElement("span");
+        delBtn.textContent = "🗑️";
+        delBtn.className = "admin-btn";
+        delBtn.onclick = () => {
+          ws.send(JSON.stringify({ type: "delete", id }));
+        };
+        div.appendChild(delBtn);
+
+        if (from && !admins.has(from)) {
+          const makeAdminBtn = document.createElement("span");
+          makeAdminBtn.textContent = "👑";
+          makeAdminBtn.className = "admin-btn";
+          makeAdminBtn.onclick = () => {
+            ws.send(JSON.stringify({ type: "make_admin", target: from }));
+          };
+          div.appendChild(makeAdminBtn);
+        }
+      }
+
+      document.getElementById("messages").appendChild(div);
+      document.getElementById("messages").scrollTop = 9999;
+    }
   </script>
 </body>
 </html>

@@ -1,79 +1,125 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
-
+const express = require("express");
 const app = express();
+const http = require("http");
+const WebSocket = require("ws");
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static(path.join(__dirname, 'public')));
+const clients = new Map(); // socket -> { username, room }
+const rooms = new Map(); // room -> Set of usernames
+const socketsPerUser = new Map(); // username -> socket
+const roomAdmins = new Map(); // room -> Set of admins
 
-const users = new Map(); // ws => { username, room }
-const rooms = new Map(); // room => Set(ws)
+app.use(express.static("public"));
 
-wss.on('connection', (ws) => {
-  console.log('Nou client connectat');
-
-  ws.on('message', (message) => {
+wss.on("connection", (ws) => {
+  ws.on("message", (data) => {
+    let msg;
     try {
-      const data = JSON.parse(message);
+      msg = JSON.parse(data);
+    } catch (e) {
+      return;
+    }
 
-      if (data.type === 'setName') {
-        users.set(ws, { username: data.username, room: null });
+    if (msg.type === "join") {
+      const username = msg.username;
+      const room = msg.room.toLowerCase(); // normalize room name
+
+      clients.set(ws, { username, room });
+      socketsPerUser.set(username, ws);
+
+      if (!rooms.has(room)) {
+        rooms.set(room, new Set());
+        roomAdmins.set(room, new Set([username]));
+        console.log(`Primer admin de la sala "${room}": ${username}`);
       }
 
-      if (data.type === 'joinRoom') {
-        const user = users.get(ws);
-        if (!user) return;
+      rooms.get(room).add(username);
 
-        // Normalizem el nom de la sala
-        const room = data.room.toLowerCase();
+      // Avisar als altres
+      broadcast(room, {
+        type: "info",
+        text: `* ${username} s'ha unit a la sala.`,
+      });
 
-        if (user.room && rooms.has(user.room)) {
-          rooms.get(user.room).delete(ws);
-        }
-
-        user.room = room;
-        users.set(ws, user);
-
-        if (!rooms.has(room)) {
-          rooms.set(room, new Set());
-        }
-
-        rooms.get(room).add(ws);
+      // Avisar a l'usuari si ell és admin
+      if (roomAdmins.get(room).has(username)) {
+        ws.send(
+          JSON.stringify({
+            type: "you_are_admin",
+            username,
+          })
+        );
       }
+    }
 
-      if (data.type === 'message') {
-        const user = users.get(ws);
-        if (!user || !user.room) return;
+    if (msg.type === "chat") {
+      const { username, room } = clients.get(ws) || {};
+      if (!username || !room) return;
 
-        const payload = JSON.stringify({
-          username: user.username,
-          text: data.text,
+      broadcast(room, {
+        type: "chat",
+        from: username,
+        text: msg.text,
+        id: msg.id,
+      });
+    }
+
+    if (msg.type === "delete") {
+      const { username, room } = clients.get(ws) || {};
+      if (roomAdmins.get(room)?.has(username)) {
+        broadcast(room, {
+          type: "delete",
+          id: msg.id,
+        });
+      }
+    }
+
+    if (msg.type === "make_admin") {
+      const { username, room } = clients.get(ws) || {};
+      if (roomAdmins.get(room)?.has(username)) {
+        roomAdmins.get(room).add(msg.target);
+        broadcast(room, {
+          type: "info",
+          text: `* ${msg.target} ara és administrador.`,
         });
 
-        rooms.get(user.room)?.forEach(client => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(payload);
-          }
-        });
+        const targetSocket = socketsPerUser.get(msg.target);
+        if (targetSocket) {
+          targetSocket.send(
+            JSON.stringify({
+              type: "you_are_admin",
+              username: msg.target,
+            })
+          );
+        }
       }
-
-    } catch (err) {
-      console.error('Error processant missatge:', err);
     }
   });
 
-  ws.on('close', () => {
-    const user = users.get(ws);
-    if (user?.room && rooms.has(user.room)) {
-      rooms.get(user.room).delete(ws);
+  ws.on("close", () => {
+    const user = clients.get(ws);
+    if (user) {
+      const { username, room } = user;
+      clients.delete(ws);
+      rooms.get(room)?.delete(username);
+
+      broadcast(room, {
+        type: "info",
+        text: `* ${username} ha sortit.`,
+      });
     }
-    users.delete(ws);
   });
 });
 
+function broadcast(room, message) {
+  for (const [client, { room: r }] of clients.entries()) {
+    if (r === room) {
+      client.send(JSON.stringify(message));
+    }
+  }
+}
+
 server.listen(3000, () => {
-  console.log('Servidor escoltant a http://localhost:3000');
+  console.log("Servidor actiu a http://localhost:3000");
 });
