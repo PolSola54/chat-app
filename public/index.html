@@ -121,8 +121,13 @@
         if (msg.from !== username) {
           addMessage(`${msg.from}: ${msg.text}`, msg.id, false, msg.from);
         }
+        
       } else if (msg.type === "info") {
         addMessage(msg.text);
+      } else if (msg.type === "error") {
+        alert(msg.text);
+        document.getElementById("login").style.display = "block";
+        document.getElementById("chat").style.display = "none";
       } else if (msg.type === "delete") {
         const el = document.getElementById("msg-" + msg.id);
         if (el) el.remove();

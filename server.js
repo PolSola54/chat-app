@@ -24,6 +24,15 @@ wss.on("connection", (ws) => {
     if (msg.type === "join") {
       const username = msg.username;
       const room = msg.room.toLowerCase();
+      // Comprovar si ja existeix el nom a la sala
+      if (rooms.get(room)?.has(username)) {
+        ws.send(JSON.stringify({
+          type: "error",
+          text: `El nom d'usuari "${username}" ja està en ús a la sala "${room}".`,
+        }));
+        return;
+      }
+
 
       clients.set(ws, { username, room });
       socketsPerUser.set(username, ws);
