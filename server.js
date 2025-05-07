@@ -23,7 +23,7 @@ wss.on("connection", (ws) => {
 
     if (msg.type === "join") {
       const username = msg.username;
-      const room = msg.room.toLowerCase(); // normalize room name
+      const room = msg.room.toLowerCase();
 
       clients.set(ws, { username, room });
       socketsPerUser.set(username, ws);
@@ -36,13 +36,11 @@ wss.on("connection", (ws) => {
 
       rooms.get(room).add(username);
 
-      // Avisar als altres
       broadcast(room, {
         type: "info",
         text: `* ${username} s'ha unit a la sala.`,
       });
 
-      // Avisar a l'usuari si ell és admin
       if (roomAdmins.get(room).has(username)) {
         ws.send(
           JSON.stringify({
@@ -57,12 +55,14 @@ wss.on("connection", (ws) => {
       const { username, room } = clients.get(ws) || {};
       if (!username || !room) return;
 
+      const censored = censorText(msg.text);
       broadcast(room, {
         type: "chat",
         from: username,
-        text: msg.text,
+        text: censored,
         id: msg.id,
       });
+
     }
 
     if (msg.type === "delete") {
@@ -119,6 +119,14 @@ function broadcast(room, message) {
     }
   }
 }
+
+
+function censorText(text) {
+  const bannedWords = ["merda", "idiota", "imbecil", "tonto", "capullo"];
+  const regex = new RegExp(`\\b(${bannedWords.join("|")})\\b`, "gi");
+  return text.replace(regex, (match) => "*".repeat(match.length));
+}
+
 
 server.listen(3000, () => {
   console.log("Servidor actiu a http://localhost:3000");
